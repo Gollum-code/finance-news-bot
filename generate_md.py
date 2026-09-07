@@ -34,11 +34,15 @@ def main():
     lines.append("")
 
     for cat in sorted(groups):
-        lines.append(f"## {cat}")
+        lines.append(f"## {cat}（{len(groups[cat])}）")
         lines.append("")
         for it in sorted(groups[cat], key=lambda x: x["publish_time"], reverse=True):
+            if cat == "快讯":
+                lines.append(f"- {it['publish_time'][-8:]} **{it['title']}** — {it['url']}")
+                continue
             lines.append(f"- **{it['title']}**")
-            lines.append(f"  - 来源：{it['source']} ｜ 时间：{it['publish_time']}")
+            site = it.get("source_site") or it.get("source") or ""
+            lines.append(f"  - 来源：{site} ｜ {it['source']} ｜ 时间：{it['publish_time']}")
             if it.get("intro"):
                 lines.append(f"  - 摘要：{it['intro']}")
             lines.append(f"  - 链接：{it['url']}")
