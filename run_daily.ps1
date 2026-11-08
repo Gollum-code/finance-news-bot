@@ -31,6 +31,33 @@ if (Test-Path $LogFile) {
     }
 }
 
+# ---------------------------------------------------------------------------
+# Auto-exclusivity with GitHub Actions:
+# once billing is unlocked and CI succeeds again, skip the local run to avoid
+# duplicated work / duplicate commits. Set FORCE_LOCAL_RUN=1 to override.
+# ---------------------------------------------------------------------------
+function Test-WorkflowHealthy($wf) {
+    try {
+        $uri = "https://api.github.com/repos/Gollum-code/finance-news-bot/actions/workflows/$wf/runs?per_page=5"
+        $resp = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "finance-news-bot-runner" } -TimeoutSec 20
+        $now = [DateTimeOffset]::UtcNow
+        foreach ($r in $resp.workflow_runs) {
+            if ($r.conclusion -eq "success") {
+                $created = [DateTimeOffset]::Parse($r.created_at)
+                if (($now - $created).TotalHours -lt 22) { return $true }
+            }
+        }
+    } catch {
+        Log ("CI health check failed for ${wf} (assume CI down): " + $_.Exception.Message)
+    }
+    return $false
+}
+
+if ($env:FORCE_LOCAL_RUN -ne "1" -and (Test-WorkflowHealthy "daily.yml") -and (Test-WorkflowHealthy "draft.yml")) {
+    Log "CI is healthy (recent successes on both workflows) -> local runner skipped to avoid duplicate work."
+    exit 0
+}
+
 function Run-Step($n, $name, $exe, $scriptArgs) {
     Log "[$n] $name"
     & $exe @scriptArgs 2>&1 | Out-File -FilePath $LogFile -Append -Encoding utf8
@@ -69,5 +96,19 @@ $ArticleArg = "drafts\" + $Yesterday + "\article.md"
 $OutArg     = "drafts\" + $Yesterday + "\mp_body.html"
 $ok = Run-Step "5/5" "md_to_mphtml.py" $Py @("md_to_mphtml.py", $ArticleArg, "-o", $OutArg)
 if (-not $ok) { Log "warn: md_to_mphtml failed" }
+
+# 6) Best-effort publish data + daily to GitHub (never fails the run)
+$env:GIT_TERMINAL_PROMPT = "0"
+Log "[6] publish data/daily to GitHub"
+& git add data daily 2>&1 | Out-Null
+$staged = & git diff --cached --name-only 2>&1
+if ($staged) {
+    & git commit -m "chore: update finance news $Yesterday (local runner)" 2>&1 | Out-Null
+    $pushOut = & git push origin main 2>&1
+    foreach ($line in $pushOut) { Log ("[git] " + $line) }
+    if ($LASTEXITCODE -eq 0) { Log "[6] pushed ok" } else { Log "[6] push failed (will retry next run / manual sync needed)" }
+} else {
+    Log "[6] nothing new to commit"
+}
 
 Log "=== FinanceNewsBot daily run done ==="
