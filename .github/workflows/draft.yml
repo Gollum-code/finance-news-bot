@@ -1,0 +1,46 @@
+name: Generate Daily Draft
+
+on:
+  schedule:
+    - cron: "15 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate article draft
+        env:
+          TZ: Asia/Shanghai
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          YESTERDAY=$(python -c "from datetime import date, timedelta; print((date.today() - timedelta(days=1)).isoformat())")
+          python write_article.py --date "$YESTERDAY"
+
+      - name: Search and download images
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          YESTERDAY=$(python -c "from datetime import date, timedelta; print((date.today() - timedelta(days=1)).isoformat())")
+          python search_images.py --date "$YESTERDAY"
+          python md_to_mphtml.py "drafts/$YESTERDAY/article.md"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add drafts
+          git commit -m "chore: generate daily draft $(date +%F)" || echo "nothing to commit"
+          git push

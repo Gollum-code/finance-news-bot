@@ -8,14 +8,20 @@
 - 覆盖分类：股票 / 基金 / 理财 / 外汇 / 债券 / 美股港股 / 快讯 / 财经 / 科技 / AI …
 - 按分类归档，生成 `daily/YYYY-MM-DD.md` 日报 + `data/finance_YYYY-MM-DD.json` 原始数据
 - 托管在 GitHub Actions，每天自动运行、自动提交，无需自己服务器
+- **公众号内容流水线**：AI 写稿（DeepSeek）→ 封面图 → 半自动发布 → 自动回复配置，见 `WORKFLOW.md`
 
 ## 目录结构
 
 ```
 finance-news-bot/
 ├── .github/workflows/daily.yml   # 定时工作流
+├── .github/workflows/draft.yml   # 每日自动生成草稿（可选）
 ├── finance_crawler.py            # 多源爬虫
 ├── generate_md.py                # Markdown 日报生成器
+├── write_article.py              # DeepSeek 推文生成（含封面提示词）
+├── md_to_mphtml.py               # Markdown → 公众号 HTML
+├── auto_reply/                   # 自动回复规则 + 配置教程
+├── WORKFLOW.md                   # 公众号内容流水线文档
 ├── requirements.txt
 ├── data/                         # JSON 数据
 ├── daily/                        # Markdown 日报
