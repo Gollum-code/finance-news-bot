@@ -1,8 +1,10 @@
 name: Generate Daily Draft
 
 on:
-  schedule:
-    - cron: "15 1 * * *"
+  # 定时器已停用：当前由本机 Windows 计划任务 run_daily.ps1 负责每日抓取。
+  # 若以后要切回 GitHub Actions：取消下行注释，并停用本机计划任务 FinanceNewsBot-*。
+  # schedule:
+  #   - cron: "15 1 * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,6 +43,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add drafts
+          git add -f drafts
           git commit -m "chore: generate daily draft $(date +%F)" || echo "nothing to commit"
           git push

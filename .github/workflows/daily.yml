@@ -1,8 +1,10 @@
 name: Daily Finance News
 
 on:
-  schedule:
-    - cron: "0 1 * * *"
+  # 定时器已停用：当前由本机 Windows 计划任务 run_daily.ps1 负责每日抓取。
+  # 若以后要切回 GitHub Actions：取消下行注释，并停用本机计划任务 FinanceNewsBot-*。
+  # schedule:
+  #   - cron: "0 1 * * *"
   workflow_dispatch:
 
 permissions:

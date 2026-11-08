@@ -33,28 +33,28 @@ if (Test-Path $LogFile) {
 
 # ---------------------------------------------------------------------------
 # Auto-exclusivity with GitHub Actions:
-# once billing is unlocked and CI succeeds again, skip the local run to avoid
-# duplicated work / duplicate commits. Set FORCE_LOCAL_RUN=1 to override.
+# if CI (github-actions bot) committed BOTH the data and the draft for today,
+# the cloud is handling this date -> skip locally to avoid duplicate work.
+# Detection is git-based (no API rate limits): fetch origin and look for bot
+# commits. Set FORCE_LOCAL_RUN=1 to always run locally.
 # ---------------------------------------------------------------------------
-function Test-WorkflowHealthy($wf) {
+function Test-CIHealthy {
     try {
-        $uri = "https://api.github.com/repos/Gollum-code/finance-news-bot/actions/workflows/$wf/runs?per_page=5"
-        $resp = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "finance-news-bot-runner" } -TimeoutSec 20
-        $now = [DateTimeOffset]::UtcNow
-        foreach ($r in $resp.workflow_runs) {
-            if ($r.conclusion -eq "success") {
-                $created = [DateTimeOffset]::Parse($r.created_at)
-                if (($now - $created).TotalHours -lt 22) { return $true }
-            }
-        }
+        & git fetch origin main 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) { return $false }
+        $today = (Get-Date).ToString("yyyy-MM-dd")
+        $logs = & git log origin/main --since="26 hours ago" --format="%an|%s" 2>&1
+        $dataOk  = @($logs | Where-Object { $_ -match "^github-actions.*update finance news $today" }).Count -gt 0
+        $draftOk = @($logs | Where-Object { $_ -match "^github-actions.*generate daily draft $today" }).Count -gt 0
+        return ($dataOk -and $draftOk)
     } catch {
-        Log ("CI health check failed for ${wf} (assume CI down): " + $_.Exception.Message)
+        Log ("CI health check error (assume CI down): " + $_.Exception.Message)
     }
     return $false
 }
 
-if ($env:FORCE_LOCAL_RUN -ne "1" -and (Test-WorkflowHealthy "daily.yml") -and (Test-WorkflowHealthy "draft.yml")) {
-    Log "CI is healthy (recent successes on both workflows) -> local runner skipped to avoid duplicate work."
+if ($env:FORCE_LOCAL_RUN -ne "1" -and (Test-CIHealthy)) {
+    Log "CI is healthy (bot committed data+draft for today) -> local runner skipped."
     exit 0
 }
 
@@ -104,9 +104,18 @@ Log "[6] publish data/daily to GitHub"
 $staged = & git diff --cached --name-only 2>&1
 if ($staged) {
     & git commit -m "chore: update finance news $Yesterday (local runner)" 2>&1 | Out-Null
-    $pushOut = & git push origin main 2>&1
-    foreach ($line in $pushOut) { Log ("[git] " + $line) }
-    if ($LASTEXITCODE -eq 0) { Log "[6] pushed ok" } else { Log "[6] push failed (will retry next run / manual sync needed)" }
+    & git push origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
+    if ($LASTEXITCODE -ne 0) {
+        Log "[6] push rejected, trying pull --rebase then push"
+        & git pull --rebase --autostash origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
+        if ($LASTEXITCODE -eq 0) {
+            & git push origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
+        } else {
+            & git rebase --abort 2>&1 | Out-Null
+            Log "[6] rebase failed too; keeping local commit, manual sync needed"
+        }
+    }
+    if ($LASTEXITCODE -eq 0) { Log "[6] pushed ok" } else { Log "[6] publish incomplete (local data is safe on disk)" }
 } else {
     Log "[6] nothing new to commit"
 }
