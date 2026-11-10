@@ -97,27 +97,46 @@ $OutArg     = "drafts\" + $Yesterday + "\mp_body.html"
 $ok = Run-Step "5/5" "md_to_mphtml.py" $Py @("md_to_mphtml.py", $ArticleArg, "-o", $OutArg)
 if (-not $ok) { Log "warn: md_to_mphtml failed" }
 
-# 6) Best-effort publish data + daily to GitHub (never fails the run)
+# 6) Publish data + daily to GitHub (retries; never breaks local data)
 $env:GIT_TERMINAL_PROMPT = "0"
 Log "[6] publish data/daily to GitHub"
+$publishOk = $false
 & git add data daily 2>&1 | Out-Null
 $staged = & git diff --cached --name-only 2>&1
 if ($staged) {
     & git commit -m "chore: update finance news $Yesterday (local runner)" 2>&1 | Out-Null
-    & git push origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
+}
+& git fetch origin main 2>&1 | Out-Null
+$behind = 0
+try { $behind = [int](& git rev-list --count HEAD..origin/main 2>$null) } catch { $behind = 0 }
+if ($behind -gt 0) {
+    Log "[6] remote is ahead by $behind commit(s), rebasing first"
+    & git pull --rebase --autostash origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
     if ($LASTEXITCODE -ne 0) {
-        Log "[6] push rejected, trying pull --rebase then push"
-        & git pull --rebase --autostash origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
-        if ($LASTEXITCODE -eq 0) {
-            & git push origin main 2>&1 | ForEach-Object { Log ("[git] " + $_) }
-        } else {
-            & git rebase --abort 2>&1 | Out-Null
-            Log "[6] rebase failed too; keeping local commit, manual sync needed"
+        & git rebase --abort 2>&1 | Out-Null
+        Log "[6] rebase failed; keeping local commits, manual sync needed"
+    }
+}
+$unpushed = & git log origin/main..HEAD --oneline 2>&1
+if (-not $unpushed) {
+    Log "[6] nothing to push"
+    $publishOk = $true
+} else {
+    for ($i = 1; $i -le 3 -and -not $publishOk; $i++) {
+        $pushOut = & git push origin main 2>&1
+        foreach ($line in $pushOut) { Log ("[git] " + $line) }
+        if ($LASTEXITCODE -eq 0) { $publishOk = $true }
+        else {
+            Log "[6] push attempt $i/3 failed"
+            if ($i -lt 3) { Log "[6] waiting 20s before retry..."; Start-Sleep -Seconds 20 }
         }
     }
-    if ($LASTEXITCODE -eq 0) { Log "[6] pushed ok" } else { Log "[6] publish incomplete (local data is safe on disk)" }
-} else {
-    Log "[6] nothing new to commit"
+    if ($publishOk) { Log "[6] pushed ok" }
+    else { Log "[6] publish incomplete (local data is safe; next catch-up run will retry)" }
 }
 
-Log "=== FinanceNewsBot daily run done ==="
+if ($publishOk) {
+    Log "=== FinanceNewsBot daily run done ==="
+} else {
+    Log "=== run finished but publish incomplete (done marker withheld, catch-up will retry) ==="
+}

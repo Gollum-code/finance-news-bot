@@ -7,28 +7,41 @@
 - 多源抓取：新浪财经、东方财富、华尔街见闻（含科技/AI）、网易财经
 - 覆盖分类：股票 / 基金 / 理财 / 外汇 / 债券 / 美股港股 / 快讯 / 财经 / 科技 / AI …
 - 按分类归档，生成 `daily/YYYY-MM-DD.md` 日报 + `data/finance_YYYY-MM-DD.json` 原始数据
-- 托管在 GitHub Actions，每天自动运行、自动提交，无需自己服务器
+- 每天自动运行：本机 Windows 计划任务（GitHub Actions 定时器已停用，可随时切回）
 - **公众号内容流水线**：AI 写稿（DeepSeek）→ 封面图 → 半自动发布 → 自动回复配置，见 `WORKFLOW.md`
 
 ## 目录结构
 
 ```
 finance-news-bot/
-├── .github/workflows/daily.yml   # 定时工作流
-├── .github/workflows/draft.yml   # 每日自动生成草稿（可选）
+├── .github/workflows/daily.yml   # 抓取工作流（定时器已停用）
+├── .github/workflows/draft.yml   # 草稿工作流（定时器已停用）
+├── run_daily.ps1                 # 本地每日流水线（Windows 计划任务调用）
 ├── finance_crawler.py            # 多源爬虫
 ├── generate_md.py                # Markdown 日报生成器
-├── write_article.py              # DeepSeek 推文生成（含封面提示词）
+├── write_article.py              # DeepSeek 写稿
+├── search_images.py              # Pixabay 配图下载
 ├── md_to_mphtml.py               # Markdown → 公众号 HTML
+├── style/                        # 排版样式
 ├── auto_reply/                   # 自动回复规则 + 配置教程
 ├── WORKFLOW.md                   # 公众号内容流水线文档
 ├── requirements.txt
-├── data/                         # JSON 数据
+├── data/                         # JSON 数据（finance_all.json 仅本地，不入库）
 ├── daily/                        # Markdown 日报
 └── README.md
 ```
 
 ## 本地运行
+
+一条龙（爬取 → 日报 → AI 写稿 → 配图 → 公众号 HTML，并自动提交推送）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\run_daily.ps1
+```
+
+> Windows 计划任务已配好：每天 09:15 自动运行，失败会在 13:00 / 20:00 自动补跑。详见 `WORKFLOW.md`。
+
+单独运行各步骤：
 
 ```bash
 pip install -r requirements.txt

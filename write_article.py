@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -106,16 +107,27 @@ def build_news_block(cands):
     return "\n".join(lines)
 
 
-def call_llm(api_key, base_url, model, messages):
+def call_llm(api_key, base_url, model, messages, retries=3):
     url = f"{base_url.rstrip('/')}/chat/completions"
-    resp = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": model, "messages": messages, "temperature": 0.8, "stream": False},
-        timeout=300,
-    )
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": messages, "temperature": 0.8, "stream": False},
+                timeout=300,
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                wait = 10 * attempt
+                print(f"[!] LLM 调用失败（第 {attempt}/{retries} 次）：{exc}")
+                print(f"    {wait}s 后自动重试...")
+                time.sleep(wait)
+    raise last_exc
 
 
 def _try_load(candidate):
